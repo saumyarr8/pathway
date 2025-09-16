@@ -11,7 +11,9 @@ use crate::external_integration::brute_force_knn_integration::{
     BruteForceKNNIndexFactory, BruteForceKnnMetricKind,
 };
 use crate::external_integration::tantivy_integration::TantivyIndexFactory;
-use crate::external_integration::usearch_integration::{USearchKNNIndexFactory, USearchMetricKind};
+use crate::external_integration::usearch_integration::USearchMetricKind;
+#[cfg(not(windows))]
+use crate::external_integration::usearch_integration::USearchKNNIndexFactory;
 use crate::external_integration::ExternalIndexFactory;
 use crate::{engine::ColumnPath, python_api::Table};
 
@@ -33,15 +35,39 @@ impl PyExternalIndexFactory {
         expansion_add: usize,
         expansion_search: usize,
     ) -> PyExternalIndexFactory {
-        PyExternalIndexFactory {
-            inner: Arc::new(USearchKNNIndexFactory::new(
-                dimensions,
-                reserved_space,
-                metric.0,
-                connectivity,
-                expansion_add,
-                expansion_search,
-            )),
+        #[cfg(windows)]
+        {
+            // Use BruteForce on Windows due to USearch access violations
+            use crate::external_integration::brute_force_knn_integration::{BruteForceKNNIndexFactory, BruteForceKnnMetricKind};
+            
+            let brute_force_metric = match metric.0 {
+                usearch::ffi::MetricKind::L2sq => BruteForceKnnMetricKind::L2sq,
+                usearch::ffi::MetricKind::Cos => BruteForceKnnMetricKind::Cos,
+                _ => BruteForceKnnMetricKind::L2sq,
+            };
+            
+            PyExternalIndexFactory {
+                inner: Arc::new(BruteForceKNNIndexFactory::new(
+                    dimensions,
+                    reserved_space,
+                    reserved_space * 2,
+                    brute_force_metric,
+                )),
+            }
+        }
+        
+        #[cfg(not(windows))]
+        {
+            PyExternalIndexFactory {
+                inner: Arc::new(USearchKNNIndexFactory::new(
+                    dimensions,
+                    reserved_space,
+                    metric.0,
+                    connectivity,
+                    expansion_add,
+                    expansion_search,
+                )),
+            }
         }
     }
 

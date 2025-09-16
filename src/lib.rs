@@ -23,7 +23,7 @@ mod pipe;
 mod retry;
 mod timestamp;
 
-#[cfg(not(feature = "standard-allocator"))]
+#[cfg(all(not(feature = "standard-allocator"), unix))]
 mod jemalloc {
     use jemallocator::Jemalloc;
 

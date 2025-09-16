@@ -269,6 +269,6 @@ impl ExternalIndexFactory for BruteForceKNNIndexFactory {
             self.auxiliary_space,
             self.metric,
         )?;
-        Ok(Box::new(DerivedFilteredSearchIndex::new(Box::new(u_index))))
+        Ok(Box::new(DerivedFilteredSearchIndex::new(Box::new(u_index))) as Box<dyn ExternalIndex>)
     }
 }

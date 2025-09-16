@@ -17,7 +17,11 @@ fn check_file_name_in_metadata(data_read: &ParsedEvent, name: &str) {
     if let ParsedEvent::Insert((_, values)) = data_read {
         if let Value::Json(meta) = &values[values.len() - 1] {
             let path: String = meta["path"].to_string();
-            assert!(path.ends_with(name), "{data_read:?}");
+            // Remove surrounding quotes from JSON string and normalize path separators
+            let path_clean = path.trim_matches('"');
+            // Handle both single backslashes (\) and escaped backslashes (\\)
+            let normalized_path = path_clean.replace("\\\\", "/").replace('\\', "/");
+            assert!(normalized_path.ends_with(name), "Expected '{}' to end with '{}'. Full data: {data_read:?}", normalized_path, name);
         } else {
             panic!("wrong type of metadata field");
         }
@@ -57,9 +61,9 @@ fn test_metadata_fs_dir() -> eyre::Result<()> {
     )?;
 
     let data_read = read_data_from_reader(Box::new(reader), Box::new(parser))?;
-    check_file_name_in_metadata(&data_read[0], "tests/data/csvdir/a.txt\"");
-    check_file_name_in_metadata(&data_read[2], "tests/data/csvdir/b.txt\"");
-    check_file_name_in_metadata(&data_read[4], "tests/data/csvdir/c.txt\"");
+    check_file_name_in_metadata(&data_read[0], "tests/data/csvdir/a.txt");
+    check_file_name_in_metadata(&data_read[2], "tests/data/csvdir/b.txt");
+    check_file_name_in_metadata(&data_read[4], "tests/data/csvdir/c.txt");
 
     Ok(())
 }
@@ -95,7 +99,7 @@ fn test_metadata_fs_file() -> eyre::Result<()> {
     )?;
 
     let data_read = read_data_from_reader(Box::new(reader), Box::new(parser))?;
-    check_file_name_in_metadata(&data_read[0], "tests/data/minimal.txt\"");
+    check_file_name_in_metadata(&data_read[0], "tests/data/minimal.txt");
 
     Ok(())
 }
@@ -134,9 +138,9 @@ fn test_metadata_csv_dir() -> eyre::Result<()> {
     )?;
 
     let data_read = read_data_from_reader(Box::new(reader), Box::new(parser))?;
-    check_file_name_in_metadata(&data_read[0], "tests/data/csvdir/a.txt\"");
-    check_file_name_in_metadata(&data_read[2], "tests/data/csvdir/b.txt\"");
-    check_file_name_in_metadata(&data_read[4], "tests/data/csvdir/c.txt\"");
+    check_file_name_in_metadata(&data_read[0], "tests/data/csvdir/a.txt");
+    check_file_name_in_metadata(&data_read[2], "tests/data/csvdir/b.txt");
+    check_file_name_in_metadata(&data_read[4], "tests/data/csvdir/c.txt");
 
     Ok(())
 }
@@ -175,7 +179,7 @@ fn test_metadata_csv_file() -> eyre::Result<()> {
     )?;
 
     let data_read = read_data_from_reader(Box::new(reader), Box::new(parser))?;
-    check_file_name_in_metadata(&data_read[0], "tests/data/minimal.txt\"");
+    check_file_name_in_metadata(&data_read[0], "tests/data/minimal.txt");
 
     Ok(())
 }
@@ -207,7 +211,7 @@ fn test_metadata_json_file() -> eyre::Result<()> {
     )?;
 
     let data_read = read_data_from_reader(Box::new(reader), Box::new(parser))?;
-    check_file_name_in_metadata(&data_read[0], "tests/data/jsonlines.txt\"");
+    check_file_name_in_metadata(&data_read[0], "tests/data/jsonlines.txt");
 
     Ok(())
 }
@@ -239,8 +243,8 @@ fn test_metadata_json_dir() -> eyre::Result<()> {
     )?;
 
     let data_read = read_data_from_reader(Box::new(reader), Box::new(parser))?;
-    check_file_name_in_metadata(&data_read[0], "tests/data/jsonlines/one.jsonlines\"");
-    check_file_name_in_metadata(&data_read[1], "tests/data/jsonlines/two.jsonlines\"");
+    check_file_name_in_metadata(&data_read[0], "tests/data/jsonlines/one.jsonlines");
+    check_file_name_in_metadata(&data_read[1], "tests/data/jsonlines/two.jsonlines");
 
     Ok(())
 }
@@ -262,7 +266,7 @@ fn test_metadata_identity_file() -> eyre::Result<()> {
     );
 
     let data_read = read_data_from_reader(Box::new(reader), Box::new(parser))?;
-    check_file_name_in_metadata(&data_read[0], "tests/data/jsonlines.txt\"");
+    check_file_name_in_metadata(&data_read[0], "tests/data/jsonlines.txt");
 
     Ok(())
 }
@@ -284,8 +288,8 @@ fn test_metadata_identity_dir() -> eyre::Result<()> {
     );
 
     let data_read = read_data_from_reader(Box::new(reader), Box::new(parser))?;
-    check_file_name_in_metadata(&data_read[0], "tests/data/jsonlines/one.jsonlines\"");
-    check_file_name_in_metadata(&data_read[1], "tests/data/jsonlines/two.jsonlines\"");
+    check_file_name_in_metadata(&data_read[0], "tests/data/jsonlines/one.jsonlines");
+    check_file_name_in_metadata(&data_read[1], "tests/data/jsonlines/two.jsonlines");
 
     Ok(())
 }

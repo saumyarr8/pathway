@@ -20,6 +20,7 @@ use async_nats::Client as NatsClient;
 use async_nats::Subscriber as NatsSubscriber;
 use aws_sdk_dynamodb::Client as DynamoDBClient;
 use azure_storage::StorageCredentials as AzureStorageCredentials;
+use cfg_if::cfg_if;
 use csv::ReaderBuilder as CsvReaderBuilder;
 use elasticsearch::{
     auth::Credentials as ESCredentials,
@@ -74,6 +75,7 @@ use std::ffi::CString;
 use std::fs::File;
 use std::io::{BufWriter, Read};
 use std::mem::take;
+#[cfg(unix)]
 use std::os::unix::prelude::*;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -121,6 +123,7 @@ use crate::engine::reduce::StatefulCombineFn;
 use crate::engine::time::DateTime;
 use crate::engine::Config as EngineTelemetryConfig;
 use crate::engine::Timestamp;
+
 use crate::engine::{
     run_with_new_dataflow_graph, BatchWrapper, ColumnHandle, ColumnPath,
     ColumnProperties as EngineColumnProperties, DataRow, DateTimeNaive, DateTimeUtc, Duration,
@@ -6623,41 +6626,66 @@ impl PyExportedTable {
     }
 }
 
-#[allow(clippy::struct_field_names)]
-struct WakeupHandler<'py> {
-    _fd: OwnedFd,
-    set_wakeup_fd: Bound<'py, PyAny>,
-    old_wakeup_fd: Bound<'py, PyAny>,
+cfg_if!{
+    if #[cfg(unix)]{
+        #[allow(clippy::struct_field_names)]
+        struct WakeupHandler<'py> {
+            _fd: OwnedFd,
+            set_wakeup_fd: Bound<'py, PyAny>,
+            old_wakeup_fd: Bound<'py, PyAny>,
+        }
+
+    } else if #[cfg(windows)] {
+        // On Windows, we don't need a wakeup handler since signals are not used.
+        struct WakeupHandler<'py> {
+            _phantom: std::marker::PhantomData<&'py ()>,
+        }
+    }
 }
 
 impl<'py> WakeupHandler<'py> {
-    fn new(py: Python<'py>, fd: OwnedFd) -> PyResult<Option<Self>> {
-        let signal_module = py.import(intern!(py, "signal"))?;
-        let set_wakeup_fd = signal_module.getattr(intern!(py, "set_wakeup_fd"))?;
-        let old_wakeup_fd = set_wakeup_fd.call1((fd.as_raw_fd(),));
-        if let Err(ref error) = old_wakeup_fd {
-            if error.is_instance_of::<PyValueError>(py) {
-                // We are not the main thread. This means we can ignore signal handling.
-                return Ok(None);
+    cfg_if! {
+        if #[cfg(unix)] {
+            fn new(py: Python<'py>, fd: OwnedFd) -> PyResult<Option<Self>> {
+            let signal_module = py.import(intern!(py, "signal"))?;
+            let set_wakeup_fd = signal_module.getattr(intern!(py, "set_wakeup_fd"))?;
+            let old_wakeup_fd = set_wakeup_fd.call1((fd.as_raw_fd(),));
+            if let Err(ref error) = old_wakeup_fd {
+                if error.is_instance_of::<PyValueError>(py) {
+                    // We are not the main thread. This means we can ignore signal handling.
+                    return Ok(None);
+                }
+            }
+            let old_wakeup_fd = old_wakeup_fd?;
+            let res = Some(Self {
+                _fd: fd,
+                set_wakeup_fd,
+                old_wakeup_fd,
+            });
+            py.check_signals()?;
+            Ok(res)
+            }
+        } else if #[cfg(windows)] {
+            fn new(_py: Python<'py>, _handle: impl std::fmt::Debug) -> PyResult<Option<Self>> {
+            // On Windows, we don't need a wakeup handler since signals are not used.
+                Ok(None)
             }
         }
-        let old_wakeup_fd = old_wakeup_fd?;
-        let res = Some(Self {
-            _fd: fd,
-            set_wakeup_fd,
-            old_wakeup_fd,
-        });
-        py.check_signals()?;
-        Ok(res)
     }
 }
 
 impl Drop for WakeupHandler<'_> {
     fn drop(&mut self) {
+        cfg_if! {
+            if #[cfg(unix)] {
         self.set_wakeup_fd
             .call1((&self.old_wakeup_fd,))
             .expect("restoring the wakeup fd should not fail");
+        } else if #[cfg(windows)] {
+            // On Windows, we need not to do anything.
+        }
     }
+}
 }
 
 fn run_with_wakeup_receiver<R>(

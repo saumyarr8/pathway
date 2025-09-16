@@ -13,7 +13,6 @@ use ed25519_dalek::VerifyingKey;
 use ed25519_dalek::{PUBLIC_KEY_LENGTH, SIGNATURE_LENGTH};
 use hex::FromHex;
 use log::{debug, warn};
-use nix::sys::resource::Resource;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -26,8 +25,51 @@ const PATHWAY_LICENSE_SERVER: &str = "https://license.pathway.com";
 const PUBLIC_KEY: &str = "c6ef2abddc7da08f7c107649613a8f7dd853df3c54f6cafa656fc8b66fb3e8f3";
 const LICENSE_ALGORITHM: &str = "base64+ed25519";
 
+// Cross-platform resource types - unified approach
+cfg_if::cfg_if! {
+    if #[cfg(unix)] {
+        pub use nix::sys::resource::Resource;
+    } else if #[cfg(windows)] {
+        // Windows resource types - matching Unix Resource enum for compatibility
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        #[allow(non_camel_case_types)] // Keep Unix-style naming for compatibility
+        pub enum Resource {
+            RLIMIT_AS,          // Address space limit
+            RLIMIT_CORE,        // Core file size limit
+            RLIMIT_CPU,         // CPU time limit
+            RLIMIT_DATA,        // Data segment size limit
+            RLIMIT_FSIZE,       // File size limit
+            RLIMIT_LOCKS,       // File locks limit
+            RLIMIT_MEMLOCK,     // Locked memory limit
+            RLIMIT_MSGQUEUE,    // Message queue limit
+            RLIMIT_NICE,        // Nice value limit
+            RLIMIT_NOFILE,      // File descriptor limit
+            RLIMIT_NPROC,       // Process limit
+            RLIMIT_RSS,         // Resident set size limit
+            RLIMIT_RTPRIO,      // Real-time priority limit
+            RLIMIT_RTTIME,      // Real-time CPU time limit
+            RLIMIT_SIGPENDING,  // Pending signals limit
+            RLIMIT_STACK,       // Stack size limit
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct ResourceLimit(pub Resource, pub u64);
+
+impl ResourceLimit {
+    pub fn new(resource: Resource, limit: u64) -> Self {
+        Self(resource, limit)
+    }
+
+    pub fn limit(&self) -> u64 {
+        self.1
+    }
+
+    pub fn resource(&self) -> Resource {
+        self.0
+    }
+}
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum License {

@@ -10,10 +10,18 @@ use crate::{engine::dataflow::monitoring::ProberStats, env::parse_env_var};
 use arc_swap::ArcSwapOption;
 use itertools::Itertools;
 use log::{debug, info};
+#[cfg(unix)]
 use nix::sys::{
     resource::{getrusage, UsageWho},
     time::TimeValLike,
 };
+
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::FILETIME;
+#[cfg(windows)]
+use std::mem;
 use opentelemetry::{
     global,
     metrics::{Meter, MeterProvider},
@@ -49,6 +57,40 @@ const RUN_ID: &str = "run.id";
 const LICENSE_KEY: &str = "license.key";
 
 const LOCAL_DEV_NAMESPACE: &str = "local-dev";
+
+#[cfg(windows)]
+fn filetime_to_seconds(ft: &FILETIME) -> i64 {
+    // Convert FILETIME (100-nanosecond intervals) to seconds
+    let time_100ns = ((ft.dwHighDateTime as u64) << 32) | (ft.dwLowDateTime as u64);
+    (time_100ns / 10_000_000) as i64
+}
+
+#[cfg(windows)]
+fn get_process_cpu_times() -> Result<(i64, i64), &'static str> {
+    unsafe {
+        let mut creation_time = mem::zeroed::<FILETIME>();
+        let mut exit_time = mem::zeroed::<FILETIME>();
+        let mut kernel_time = mem::zeroed::<FILETIME>();
+        let mut user_time = mem::zeroed::<FILETIME>();
+        
+        let result = GetProcessTimes(
+            GetCurrentProcess(),
+            &mut creation_time,
+            &mut exit_time,
+            &mut kernel_time,
+            &mut user_time,
+        );
+        
+        if result == 0 {
+            return Err("Failed to get process times");
+        }
+        
+        let user_seconds = filetime_to_seconds(&user_time);
+        let kernel_seconds = filetime_to_seconds(&kernel_time);
+        
+        Ok((user_seconds, kernel_seconds))
+    }
+}
 
 struct Telemetry {
     pub config: Box<TelemetryEnabled>,
@@ -423,8 +465,20 @@ fn register_sys_metrics() {
         .with_callback(move |observer| {
             let mut sys: System = System::new();
             cpu_refresh(pid, &mut sys);
-            let usage = getrusage(UsageWho::RUSAGE_SELF).expect("Failed to call getrusage");
-            observer.observe(usage.user_time().num_seconds(), &[]);
+            
+            #[cfg(unix)]
+            {
+                let usage = getrusage(UsageWho::RUSAGE_SELF).expect("Failed to call getrusage");
+                observer.observe(usage.user_time().num_seconds(), &[]);
+            }
+            
+            #[cfg(windows)]
+            {
+                match get_process_cpu_times() {
+                    Ok((user_time, _)) => observer.observe(user_time, &[]),
+                    Err(_) => observer.observe(0, &[]),
+                }
+            }
         })
         .build();
 
@@ -434,8 +488,20 @@ fn register_sys_metrics() {
         .with_callback(move |observer| {
             let mut sys: System = System::new();
             cpu_refresh(pid, &mut sys);
-            let usage = getrusage(UsageWho::RUSAGE_SELF).expect("Failed to call getrusage");
-            observer.observe(usage.system_time().num_seconds(), &[]);
+            
+            #[cfg(unix)]
+            {
+                let usage = getrusage(UsageWho::RUSAGE_SELF).expect("Failed to call getrusage");
+                observer.observe(usage.system_time().num_seconds(), &[]);
+            }
+            
+            #[cfg(windows)]
+            {
+                match get_process_cpu_times() {
+                    Ok((_, system_time)) => observer.observe(system_time, &[]),
+                    Err(_) => observer.observe(0, &[]),
+                }
+            }
         })
         .build();
 }

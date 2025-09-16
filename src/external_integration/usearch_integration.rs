@@ -158,6 +158,6 @@ impl ExternalIndexFactory for USearchKNNIndexFactory {
             self.expansion_add,
             self.expansion_search,
         )?;
-        Ok(Box::new(DerivedFilteredSearchIndex::new(Box::new(u_index))))
+        Ok(Box::new(DerivedFilteredSearchIndex::new(Box::new(u_index))) as Box<dyn ExternalIndex>)
     }
 }

@@ -188,32 +188,44 @@ pub fn init() -> ResetHandle {
 /// uninitialized to try to make it work (next send will recreate the logging thread) – otherwise
 /// there is no logging thread that will ever read the sent events and waiting for flush never
 /// ends.
-mod fork_hack {
-    use std::ptr;
-    use std::sync::atomic::{AtomicPtr, Ordering};
-    use std::sync::OnceLock;
 
-    use super::Logger;
+cfg_if::cfg_if! {
+    if #[cfg(unix)] {
+        mod fork_hack {
+            use std::ptr;
+            use std::sync::atomic::{AtomicPtr, Ordering};
+            use std::sync::OnceLock;
 
-    static LOGGER: AtomicPtr<Logger> = AtomicPtr::new(ptr::null_mut());
+            use super::Logger;
 
-    unsafe extern "C" fn child_handler() {
-        let logger = LOGGER.load(Ordering::SeqCst);
-        let new_sender = OnceLock::new();
-        // SAFETY: we are running early after fork, no other code should be accessing the logger
-        unsafe {
-            ptr::write(ptr::addr_of_mut!((*logger).sender), new_sender);
+            static LOGGER: AtomicPtr<Logger> = AtomicPtr::new(ptr::null_mut());
+
+            unsafe extern "C" fn child_handler() {
+                let logger = LOGGER.load(Ordering::SeqCst);
+                let new_sender = OnceLock::new();
+                // SAFETY: we are running early after fork, no other code should be accessing the logger
+                unsafe {
+                    ptr::write(ptr::addr_of_mut!((*logger).sender), new_sender);
+                }
+            }
+
+            pub fn enable(logger: &'static Logger) {
+                let logger = ptr::addr_of!(*logger).cast_mut();
+                let old_logger = LOGGER.swap(logger, Ordering::SeqCst);
+                assert!(old_logger.is_null());
+
+                // SAFETY: `child_handler` is an appropriate handler for `pthread_atfork`
+                unsafe {
+                    libc::pthread_atfork(None, None, Some(child_handler));
+                }
+            }
         }
-    }
-
-    pub fn enable(logger: &'static Logger) {
-        let logger = ptr::addr_of!(*logger).cast_mut();
-        let old_logger = LOGGER.swap(logger, Ordering::SeqCst);
-        assert!(old_logger.is_null());
-
-        // SAFETY: `child_handler` is an appropriate handler for `pthread_atfork`
-        unsafe {
-            libc::pthread_atfork(None, None, Some(child_handler));
+    } else if #[cfg(windows)] {
+        mod fork_hack {
+            use super::Logger;
+            pub fn enable(_logger: &'static Logger) {
+                // No-op on Windows
+            }
         }
     }
 }

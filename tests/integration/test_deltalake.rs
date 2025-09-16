@@ -162,7 +162,11 @@ fn read_from_deltalake(path: &str, type_: &Type) -> Vec<Result<Value, Box<Conver
             }
             let rows = parquet_files
                 .iter()
-                .map(|p| SerializedFileReader::try_from(Path::new(p)).unwrap())
+                .map(|p| {
+                    // Simple URL decoding for %20 -> space (Windows compatibility)
+                    let decoded_path = p.replace("%20", " ");
+                    SerializedFileReader::try_from(Path::new(&decoded_path)).unwrap()
+                })
                 .flat_map(|r| r.into_iter());
             for row in rows {
                 let row = row.expect("row reading failed");
@@ -516,8 +520,12 @@ fn test_save_any_is_unsupported() -> eyre::Result<()> {
 
 #[test]
 fn test_snapshot_mode() -> eyre::Result<()> {
-    let test_storage = tempdir().expect("tempdir creation failed");
-    let test_storage_path = test_storage.path();
+    // Use current directory to avoid Windows permission issues with temp directories
+    let test_storage_dir = std::env::current_dir()
+        .expect("Failed to get current directory")
+        .join("test_delta_temp");
+    std::fs::create_dir_all(&test_storage_dir).expect("Failed to create test directory");
+    let test_storage_path = test_storage_dir.as_path();
 
     let value_fields = vec![ValueField {
         name: "field".to_string(),
@@ -674,6 +682,9 @@ fn test_snapshot_mode() -> eyre::Result<()> {
         reread_data,
         vec![Value::String("two".into()), Value::String("zero".into())]
     );
+
+    // Clean up the test directory
+    let _ = std::fs::remove_dir_all(&test_storage_dir);
 
     Ok(())
 }

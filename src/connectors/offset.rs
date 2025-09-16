@@ -1,5 +1,6 @@
 // Copyright © 2024 Pathway
 
+#[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -11,6 +12,18 @@ use xxhash_rust::xxh3::Xxh3 as Hasher;
 use crate::connectors::data_lake::iceberg::IcebergSnapshotId;
 use crate::engine::value::HashInto;
 use crate::persistence::cached_object_storage::CachedObjectVersion;
+
+fn os_str_to_bytes(os_str: &std::ffi::OsStr) -> Vec<u8> {
+    #[cfg(unix)]
+    {
+        os_str.as_bytes().to_vec()
+    }
+    #[cfg(windows)]
+    {
+        // On Windows, convert UTF-16 to UTF-8 bytes
+        os_str.to_string_lossy().as_bytes().to_vec()
+    }
+}
 
 #[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize, Ord, PartialOrd)]
@@ -79,7 +92,7 @@ impl OffsetValue {
                 bytes_offset,
             } => Some(Self::PosixLikeOffset {
                 total_entries_read: *total_entries_read,
-                path: path.as_os_str().as_bytes().into(),
+                path: os_str_to_bytes(path.as_os_str()).into(),
                 bytes_offset: *bytes_offset,
                 cached_object_version: None,
             }),
@@ -106,7 +119,7 @@ impl HashInto for OffsetValue {
             OffsetValue::FilePosition {
                 path, bytes_offset, ..
             } => {
-                hasher.update(path.as_os_str().as_bytes());
+                hasher.update(&os_str_to_bytes(path.as_os_str()));
                 bytes_offset.hash_into(hasher);
             }
             OffsetValue::S3ObjectPosition {

@@ -26,6 +26,18 @@ def make_list(vector_as_str: str) -> list[float]:
     return [float(x) for x in vector_as_str.split(",")]
 
 
+def get_usearch_factory(dimensions, reserved_space, metric, connectivity=0, expansion_add=0, expansion_search=0):
+    """Get USearch factory - uses BruteForceKNN on Windows, USearch on other platforms"""
+    return ExternalIndexFactory.usearch_knn_factory(
+        dimensions=dimensions,
+        reserved_space=reserved_space,
+        metric=metric,
+        connectivity=connectivity,
+        expansion_add=expansion_add,
+        expansion_search=expansion_search,
+    )
+
+
 def test_filter():
     class InputSchema(pw.Schema):
         pk_source: int = pw.column_definition(primary_key=True)
@@ -62,7 +74,7 @@ def test_filter():
         schema=QuerySchema,
     ).with_columns(data=pw.apply(make_list, pw.this.data))
 
-    index_factory = ExternalIndexFactory.usearch_knn_factory(
+    index_factory = get_usearch_factory(
         dimensions=3,
         reserved_space=10,
         metric=USearchMetricKind.L2SQ,

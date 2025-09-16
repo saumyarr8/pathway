@@ -166,6 +166,6 @@ impl TantivyIndexFactory {
 impl ExternalIndexFactory for TantivyIndexFactory {
     fn make_instance(&self) -> Result<Box<dyn ExternalIndex>, Error> {
         let t_index = TantivyIndex::new(self.ram_budget, self.in_memory_index)?;
-        Ok(Box::new(DerivedFilteredSearchIndex::new(Box::new(t_index))))
+        Ok(Box::new(DerivedFilteredSearchIndex::new(Box::new(t_index))) as Box<dyn ExternalIndex>)
     }
 }
